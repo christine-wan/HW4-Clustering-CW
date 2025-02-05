@@ -28,6 +28,7 @@ class KMeans:
         self.max_iter = max_iter
         self.verbose = verbose
         self.centers = None
+        self.error = None
 
     def _initialize_centroids(self, mat: np.ndarray) -> np.ndarray:
         """
@@ -48,15 +49,6 @@ class KMeans:
     def fit(self, mat: np.ndarray):
         """
         Fits the kmeans algorithm onto a provided 2D matrix.
-        (Note that this method does not return anything)
-
-        This method finds the k cluster centers from the data
-        with the tolerance, then uses .predict() to identify the
-        clusters that best match some provided data.
-
-        Inputs:
-            mat: np.ndarray
-                A 2D matrix where the rows are observations and columns are features
         """
         if mat.shape[0] < self.k:
             raise ValueError("Data must include at least k data points")
@@ -64,28 +56,36 @@ class KMeans:
             raise ValueError("Input data must be a 2D matrix")
 
         self.centers = self._initialize_centroids(mat)
-
         iters = 0
         prev_error = float("inf")
 
         while iters < self.max_iter:
-            dists = cdist(self.centers, mat, 'euclidean')
-            min_dists = np.argmin(dists, axis=0)
+            dists = cdist(mat, self.centers, 'euclidean')
+            min_dists = np.argmin(dists, axis=1)  # Assign points to clusters
 
+            # Compute new centroids
             one_hot_matrix = np.eye(self.k)[min_dists]
             sum_values = np.dot(one_hot_matrix.T, mat)
             group_counts = np.sum(one_hot_matrix, axis=0)
 
+            # Handle empty clusters
             empty_clusters = group_counts == 0
             if np.any(empty_clusters):
                 for i in np.where(empty_clusters)[0]:
-                    new_center = mat[np.random.choice(mat.shape[0])]
-                    sum_values[i] = new_center
-                    group_counts[i] = 1
+                    farthest_idx = np.argmax(np.min(dists, axis=1))  # Find farthest point
+                    sum_values[i] = mat[farthest_idx]  # Assign that point as a new centroid
+                    group_counts[i] = 1  # Prevent division by zero
+                    if self.verbose:
+                        print(f"Reassigned empty cluster {i} to new point {mat[farthest_idx]}")
 
-            self.centers = sum_values / group_counts[:, np.newaxis]
+            non_empty = group_counts > 0
+            self.centers = np.where(non_empty[:, None], sum_values / group_counts[:, None], self.centers)
 
-            error = np.sum(np.min(dists, axis=0) ** 2)
+            # Compute error (sum of squared distances)
+            error = np.sum(np.min(dists, axis=1) ** 2)
+            self.error = error
+
+            # Check for convergence
             if abs(prev_error - error) / prev_error < self.tol:
                 if self.verbose:
                     print(f"Converged after {iters} iterations with error {error:.6f}")
@@ -97,49 +97,26 @@ class KMeans:
         if iters == self.max_iter and self.verbose:
             warnings.warn(f"Failed to converge after {self.max_iter} iterations")
 
-        self.error = prev_error
-
     def predict(self, mat: np.ndarray) -> np.ndarray:
         """
-        Predicts the cluster labels for a provided matrix of data points--
-            question: what sorts of data inputs here would prevent the code from running?
-            How would you catch these sorts of end-user related errors?
-            What if, for example, the matrix is of a different number of features than
-            the data that the clusters were fit on?
-
-        Inputs:
-            mat: np.ndarray
-                A 2D matrix where the rows are observations and columns are features
-
-        Outputs:
-            np.ndarray
-                a 1D array with the cluster label for each of the observations in `mat`
+        Predicts the cluster labels for a provided matrix of data points.
         """
         if self.centers is None:
             raise ValueError("The model needs to be fitted before making predictions.")
-
         if mat.shape[1] != self.centers.shape[1]:
             raise ValueError("Input data must have the same number of features as the data used to fit the model.")
 
-        dists = cdist(self.centers, mat, 'euclidean')
-        return np.argmin(dists, axis=0)
+        dists = cdist(mat, self.centers, 'euclidean')
+        return np.argmin(dists, axis=1)
 
     def get_error(self) -> float:
         """
         Returns the final squared-mean error of the fit model.
-
-        Outputs:
-            float
-                the squared-mean error of the fit model
         """
         return self.error
 
     def get_centroids(self) -> np.ndarray:
         """
         Returns the centroid locations of the fit model.
-
-        Outputs:
-            np.ndarray
-                a `k x m` 2D matrix representing the cluster centroids of the fit model
         """
         return self.centers
