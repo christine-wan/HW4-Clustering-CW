@@ -35,6 +35,11 @@ class KMeans:
         Initializes centroids using the KMeans++ algorithm.
         """
         rng = np.random.default_rng()
+
+        if self.k >= mat.shape[0]:  # If k is close to n, return unique points
+            unique_points = np.unique(mat, axis=0)
+            return unique_points[:self.k]
+
         first_centroid = mat[rng.choice(mat.shape[0])]
         centroids = [first_centroid]
 
@@ -69,14 +74,22 @@ class KMeans:
             group_counts = np.sum(one_hot_matrix, axis=0)
 
             # Handle empty clusters
-            empty_clusters = group_counts == 0
-            if np.any(empty_clusters):
-                for i in np.where(empty_clusters)[0]:
-                    farthest_idx = np.argmax(np.min(dists, axis=1))  # Find farthest point
-                    sum_values[i] = mat[farthest_idx]  # Assign that point as a new centroid
-                    group_counts[i] = 1  # Prevent division by zero
+            empty_clusters = np.where(group_counts == 0)[0]
+            if empty_clusters.size > 0:
+                unassigned_points = np.setdiff1d(np.arange(mat.shape[0]), min_dists)
+                rng = np.random.default_rng()
+
+                for i in empty_clusters:
+                    if unassigned_points.size > 0:
+                        new_idx = rng.choice(unassigned_points)
+                        sum_values[i] = mat[new_idx]  # Assign a random unassigned point
+                        group_counts[i] = 1
+                        unassigned_points = np.setdiff1d(unassigned_points, [new_idx])
+                    else:
+                        sum_values[i] = mat[rng.choice(mat.shape[0])]  # Fallback to random reassignment
+
                     if self.verbose:
-                        print(f"Reassigned empty cluster {i} to new point {mat[farthest_idx]}")
+                        print(f"Reassigned empty cluster {i} to new point.")
 
             non_empty = group_counts > 0
             self.centers = np.where(non_empty[:, None], sum_values / group_counts[:, None], self.centers)
@@ -86,7 +99,7 @@ class KMeans:
             self.error = error
 
             # Check for convergence
-            if abs(prev_error - error) / prev_error < self.tol:
+            if abs(prev_error - error) / (prev_error + 1e-10) < self.tol:  # Avoid division by zero
                 if self.verbose:
                     print(f"Converged after {iters} iterations with error {error:.6f}")
                 break
